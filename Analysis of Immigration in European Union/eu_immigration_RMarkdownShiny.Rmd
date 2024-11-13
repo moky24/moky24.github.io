@@ -1,0 +1,161 @@
+---
+title: "Analysis of Immigration in European Union"
+author: "Samuel Mokran"
+date: '2024'
+output: html_document
+runtime: shiny
+#file: DAR2_projekt_v4_RMarkdownShiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This R Markdown document is made interactive using Shiny. This project focuses on the migration data from Eurostat. The data is loaded and cleaned, then a summary is provided. 
+
+```{r, echo = F, results = 'hide', message=FALSE}
+# load libraries
+library(readr) # for loading data
+library(tidyverse) # data manipulation
+# library(lubridate) # used but without loading, with "::"
+```
+
+```{r, echo = F, results = 'hide', message=FALSE}
+# load data
+data_v6_2 <- read_csv("data/migr_imm1ctz__custom_11840000_linear.csv")
+```
+
+### Summary of data
+```{r, echo = F}
+data_v6_2_clean <- data_v6_2 %>% 
+  #select(-c(1, 2, 3, 5, 7)) %>% #replaced
+  select(-c("DATAFLOW", "LAST UPDATE", "freq", "agedef", "unit")) %>% 
+  #mutate(TIME_PERIOD = as.Date(TIME_PERIOD, format = "%Y")) #replaced
+  mutate(TIME_PERIOD = lubridate::ymd(TIME_PERIOD, truncated = 2L)) # instead of as.Date which doesnt work because years are in format 20xx
+
+data_v6_2_clean %>% 
+  summary()
+```
+
+### Data Insight
+average (per year) and total number of immigrants in countries throughout the years
+```{r echo=FALSE}
+inputPanel(
+  textInput("citizenship_1", label = "citizenship:", value = "SK")
+)
+renderTable({
+  req(input$citizenship_1)
+  
+  data_v6_2_clean %>%
+    filter(age == "TOTAL", sex == "T") %>% # duplicate observations
+    group_by(geo) %>% # (., TIME_PERIOD)
+    summarise(mean_immigrants = format(mean(OBS_VALUE), scientific = FALSE), total_immigrants = sum(OBS_VALUE)) %>%  # scientific format off 
+    filter(geo == input$citizenship_1)
+})
+```
+
+# Data Visualization
+
+choose citizenship and find top 5 destination countries where citizens migrate to
+```{r, echo=FALSE}
+inputPanel(
+  textInput("citizenship", label = "citizenship:", value = "SK"),
+  
+  sliderInput("citizen_to_top_N", label = "number of top destinations:",
+              min = 1, max = 10, value = 5, step = 1)
+)
+renderPlot({
+  req(input$citizenship, input$citizen_to_top_N)
+  
+  citizen_to_top <- data_v6_2_clean %>%
+  filter(citizen == input$citizenship, sex == "T", age == "TOTAL") %>% 
+  group_by(geo) %>% 
+  summarise(citizen_top_mean = mean(OBS_VALUE)) %>% # sum(OBS_VALUE) vs mean()
+  arrange(desc(citizen_top_mean)) #%>% 
+  
+  top_geos <- citizen_to_top$geo[1:input$citizen_to_top_N]
+    
+data_v6_2_clean %>% 
+  filter(citizen == input$citizenship, geo %in% top_geos, age == "TOTAL", sex == "T") %>%
+  group_by(TIME_PERIOD, geo) %>% 
+  summarise(mean_immigrants = format(mean(OBS_VALUE), scientific = FALSE), total_immigrants = sum(OBS_VALUE)) %>% 
+  mutate(geo = factor(geo, levels = top_geos)) %>% # for order in ggplot
+ggplot(aes(x = TIME_PERIOD, y = total_immigrants, color = geo)) + # color = reorder(geo, -total_immigrants)
+  geom_line(size = 2) +
+  labs(title = "Immigration Trends of Selected EU Citizens" ,
+       x = "Year",
+       y = "Number of Immigrants",
+       color = "Destination Country") + 
+  scale_y_continuous(labels = scales::label_number(suffix = " K", scale = 1e-3)) #+ # format y axis
+  #scale_color_discrete(name = "Destination Country")
+})
+```
+
+### Gender Distribution
+```{r, echo=FALSE}
+renderPlot({
+  req(input$citizenship, input$citizen_to_top_N)
+  
+  citizen_to_top <- data_v6_2_clean %>%
+  filter(citizen == input$citizenship, sex == "T", age == "TOTAL") %>% 
+  group_by(geo) %>% 
+  summarise(citizen_top_mean = mean(OBS_VALUE)) %>% # sum(OBS_VALUE) vs mean()
+  arrange(desc(citizen_top_mean)) #%>% 
+  
+  top_geos <- citizen_to_top$geo[1:input$citizen_to_top_N]
+  
+  data_v6_2_clean %>% 
+    filter(citizen == input$citizenship, geo %in% top_geos, age == "TOTAL", sex != "T") %>% 
+    group_by(geo, sex) %>% 
+    summarise(mean_immigrants = format(mean(OBS_VALUE), scientific = FALSE), total_immigrants = sum(OBS_VALUE)) %>% 
+    mutate(geo = factor(geo, levels = top_geos)) %>% # for order in ggplot
+    ggplot(aes(x = factor(sex), y = total_immigrants, fill = geo)) +
+    geom_bar(stat = "identity") + coord_flip() +
+    labs(title = "Immigration Trends of Selected EU Citizens",
+         x = "Sex",
+         y = "Number of Immigrants",
+         fill = "Destination Country") + # legend for geo v2
+    scale_y_continuous(labels = scales::label_number(suffix = " K", scale = 1e-3)) #+ # format thousands
+    #scale_fill_discrete(name = "Destination Country") # legend for geo v1
+})
+```
+
+### Age Distribution
+```{r, echo=FALSE}
+renderPlot({
+  req(input$citizenship, input$citizen_to_top_N)
+  
+  citizen_to_top <- data_v6_2_clean %>%
+  filter(citizen == input$citizenship, sex == "T", age == "TOTAL") %>% 
+  group_by(geo) %>% 
+  summarise(citizen_top_mean = mean(OBS_VALUE)) %>% # sum(OBS_VALUE) vs mean()
+  arrange(desc(citizen_top_mean)) #%>% 
+  
+  top_geos <- citizen_to_top$geo[1:input$citizen_to_top_N]
+
+  # summarize the data by age group and country
+  summary_data_age <- data_v6_2_clean %>% 
+    filter(citizen == input$citizenship, geo %in% top_geos, sex != "T") %>% 
+    filter(!age %in% c("TOTAL", "UNK", "Y_GE100", "Y_GE65", "Y_GE85", "Y_LT15", "Y_LT5", "Y15-64")) %>% 
+    group_by(geo, age) %>% 
+    summarise(total_immigrants = sum(OBS_VALUE)) %>% 
+    mutate(geo = factor(geo, levels = top_geos)) # for order in ggplot
+  
+  # bar plot
+  ggplot(summary_data_age, aes(x = age, y = total_immigrants, fill = geo)) +
+    geom_bar(stat = "identity", position = "dodge") + 
+    labs(title = "Total Number of Immigrants by Age Group and Country",
+         x = "Age Group",
+         y = "Number of Immigrants",
+         fill = "Destination Country") + # legend for geo v2 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_y_continuous(labels = scales::label_number(suffix = " K", scale = 1e-3)) #+ # format thousands
+    #scale_fill_discrete(name = "Destination Country") # legend for geo v1
+})
+```
+
+## END
+
+
+
+
