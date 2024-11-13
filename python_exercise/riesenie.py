@@ -1,5 +1,3 @@
-# F1420 - zapocet - Samuel Mokran (482371)
-
 # --- ULOHA 1 ---
 # nacitanie dat pomocou balicku pandas
 
